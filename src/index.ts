@@ -15,8 +15,8 @@ app.use("/app", middlewareMetricsInc, express.static("./src/app"));
 
 // Outside /app, so these three don't touch the counter.
 app.get("/api/healthz", handlerReadiness);
-app.get("/api/metrics", handlerMetricsReport);
-app.get("/api/reset", handlerReset);
+app.get("/admin/metrics", handlerMetricsReport);
+app.get("/admin/reset", handlerReset);
 
 app.listen(PORT, () => {
     console.log(`Server is running at http://localhost:${PORT}`);
