@@ -14,6 +14,8 @@ app.use(middlewareLogResponses);
 // Runs left to right: count the hit, then serve the file.
 app.use("/app", middlewareMetricsInc, express.static("./src/app"));
 
+app.use(express.json());
+
 // Outside /app, so these three don't touch the counter.
 app.get("/api/healthz", handlerReadiness);
 app.get("/admin/metrics", handlerMetricsReport);
