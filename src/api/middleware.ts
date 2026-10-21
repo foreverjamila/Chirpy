@@ -21,3 +21,14 @@ export function middlewareMetricsInc(req: Request, res: Response, next: NextFunc
 
   next();
 }
+
+
+export function middlewareErrorHandler(
+    err: Error,
+    req: Request,
+    res: Response,
+    next: NextFunction,
+) {
+    console.error(err);
+    res.status(500).json({error: "Something went wrong on our end"});
+}

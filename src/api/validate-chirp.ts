@@ -1,6 +1,6 @@
 import {type Request, type Response} from "express";
 
-export function handlerValidateChirp(req: Request, res: Response) {
+export async function handlerValidateChirp(req: Request, res: Response) {
 
   const { body } = req.body;
     
@@ -10,8 +10,7 @@ export function handlerValidateChirp(req: Request, res: Response) {
     }
     // checks the character limit.
     if (body.length > 140) {
-      res.status(400).json({ error: "Chirp is too long" });
-      return;
+      throw new Error("Chirp is too long");
     }
 
     const profaneWords = ["kerfuffle", "sharbert", "fornax"];
