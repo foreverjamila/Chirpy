@@ -1,4 +1,5 @@
 import {type Request, type Response} from "express";
+import { UserBadRequestError } from "./errors.js";
 
 export async function handlerValidateChirp(req: Request, res: Response) {
 
@@ -9,15 +10,16 @@ export async function handlerValidateChirp(req: Request, res: Response) {
       return;
     }
     // checks the character limit.
-    if (body.length > 140) {
-      throw new Error("Chirp is too long");
+    const maxChirpLength = 140;
+    if (body.length > maxChirpLength) {
+      throw new UserBadRequestError("Chirp is too long. Max length is 140");
     }
 
-    const profaneWords = ["kerfuffle", "sharbert", "fornax"];
+    const badWords = ["kerfuffle", "sharbert", "fornax"];
     const words = body.split(" ");
 
     const cleanedWords = words.map((word) => {
-      if (profaneWords.includes(word.toLowerCase())) {
+      if (badWords.includes(word.toLowerCase())) {
         return "****";
       }
       return word;
