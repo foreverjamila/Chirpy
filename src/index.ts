@@ -8,6 +8,7 @@ import { handlerReset } from "./api/reset.js";
 import { middlewareErrorHandler, middlewareLogResponses, middlewareMetricsInc } from "./api/middleware.js";
 import { handlerValidateChirp } from "./api/validate-chirp.js";
 import { config } from "./config.js";
+import { handlerUsersCreate } from "./api/users.js";
 
 const migrationClient = postgres(config.db.url, { max: 1 });
 await migrate(drizzle(migrationClient), config.db.migrationConfig);
@@ -23,10 +24,25 @@ app.use("/app", middlewareMetricsInc, express.static("./src/app"));
 app.use(express.json());
 
 // Outside /app, so these three don't touch the counter.
-app.get("/api/healthz", handlerReadiness);
-app.get("/admin/metrics", handlerMetricsReport);
-app.post("/admin/reset", handlerReset);
-app.post("/api/validate_chirp", handlerValidateChirp);
+app.get("/api/healthz", (req, res, next) => {
+  Promise.resolve(handlerReadiness(req, res)).catch(next);
+});
+
+app.get("/admin/metrics", (req, res, next) => {
+  Promise.resolve(handlerMetricsReport(req, res)).catch(next);
+});
+
+app.post("/admin/reset", (req, res, next) => {
+  Promise.resolve(handlerReset(req, res)).catch(next);
+});
+
+app.post("/api/validate_chirp", (req, res, next) => {
+  Promise.resolve(handlerValidateChirp(req, res)).catch(next);
+});
+
+app.post("/api/users", (req, res, next) => {
+  Promise.resolve(handlerUsersCreate(req, res)).catch(next);
+});
 
 app.use(middlewareErrorHandler);
 

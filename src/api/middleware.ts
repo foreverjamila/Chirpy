@@ -1,6 +1,7 @@
 import { type Request, type Response, type NextFunction } from "express";
 import { config } from "../config.js";
-import { UserBadRequestError } from "./errors.js";
+import { UserBadRequestError, UserForbiddenError } from "./errors.js";
+
 
 
 export function middlewareLogResponses(req: Request, res: Response, next: NextFunction): void {
@@ -33,6 +34,8 @@ export function middlewareErrorHandler(
 ) {
     if (err instanceof UserBadRequestError) {
         res.status(400).json({error: err.message});
+    } else if (err instanceof UserForbiddenError) {
+        res.status(403).json({error: err.message});
     } else {
         console.error(err);
         res.status(500).json({error: "Something went wrong on our end"});
