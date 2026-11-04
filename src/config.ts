@@ -1,8 +1,19 @@
+import { MigrationConfig } from "drizzle-orm/migrator";
+
+type Config = {
+  api: APIConfig;
+  db: DBConfig;
+};
 
 // In-memory only: a restart resets this to the defaults below.
 type APIConfig = {
   fileserverHits: number;
-  dbURL: string;
+  port: number;
+};
+
+type DBConfig = {
+  url: string;
+  migrationConfig: MigrationConfig;
 };
 
 process.loadEnvFile();
@@ -15,10 +26,20 @@ function envOrThrow(key: string) {
   return value;
 }
 
-// One shared instance — every importer gets this same object, not a copy.
-const config: APIConfig = {
-    fileserverHits: 0,
-    dbURL: envOrThrow("DB_URL"),
+
+const migrationConfig: MigrationConfig = {
+  migrationsFolder: "./src/db/migrations",
 };
 
-export default config;
+// One shared instance — every importer gets this same object, not a copy.
+export const config: Config = {
+  api: {
+    fileserverHits: 0,
+    port: Number(envOrThrow("PORT")),
+  },
+  db: {
+    url: envOrThrow("DB_URL"),
+    migrationConfig: migrationConfig,
+  },
+};
+

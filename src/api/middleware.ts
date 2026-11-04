@@ -1,5 +1,5 @@
 import { type Request, type Response, type NextFunction } from "express";
-import config from "../config.js";
+import { config } from "../config.js";
 import { UserBadRequestError } from "./errors.js";
 
 
@@ -19,7 +19,7 @@ export function middlewareLogResponses(req: Request, res: Response, next: NextFu
 
 export function middlewareMetricsInc(req: Request, res: Response, next: NextFunction) {
   // Single-threaded JS, so no locking needed here.
-  config.fileserverHits++;
+  config.api.fileserverHits++;
 
   next();
 }
