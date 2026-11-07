@@ -2,14 +2,18 @@ import { Request, Response } from "express";
 import { UserBadRequestError, UserNotFoundError } from "./errors.js";
 import { createChirp, getChirps, getChirpsById } from "../db/queries/chirps.js";
 import { respondWithJSON } from "./json.js";
-
+import { getBearerToken, validateJWT } from "../auth.js";
+import { config } from "../config.js";
 
 
 export async function handlerChirpsCreate(req: Request, res: Response) {
     type Parameters = {
         body: string;
-        userId: string;
     };
+
+    const token = getBearerToken(req);
+    
+    const valid = validateJWT(token, config.jwt.secret);
 
     const params: Parameters = req.body;
 
@@ -49,12 +53,18 @@ export async function handlerChirpsCreate(req: Request, res: Response) {
 
         // The cleaned body is what gets stored, not the original. There is no
         // record of what the user actually typed.
-        const chirp = await createChirp({body: cleanedBody, userId: params.userId});
+        const chirp = await createChirp({body: cleanedBody, userId: valid});
 
         // Sending the row straight through works because the schema's property
         // names are already camelCase (id, createdAt, updatedAt, body, userId),
         // and chirps have no column we need to hide — unlike users.
-        respondWithJSON(res, 201, chirp);
+        respondWithJSON(res, 201, {
+          id: chirp.id,
+          body: chirp.body,
+          createdAt: chirp.createdAt,
+          updatedAt: chirp.updatedAt,
+          userId: chirp.userId,
+        });
 }
 
 export async function handlerChirpsGet(req: Request, res: Response) {

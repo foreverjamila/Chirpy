@@ -5,3 +5,4 @@ server.log
 
 # environment variables
 .env
+LEARNING_LOG.md
