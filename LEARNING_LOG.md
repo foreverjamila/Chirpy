@@ -482,3 +482,138 @@ requirement actually says before reaching for the stronger tool.
 thing stays a single token. Fine for this assignment, but a reminder that "split on
 whitespace" and "split on a space" are different operations, and only one of them is what
 `split(" ")` does.
+
+## Passwords: hashing with argon2 and a login endpoint (2026-11-07)
+
+### What I just did
+
+Brought the password assignment to exactly what it specifies. Five things diverged from
+the assignment text; all five are now fixed and verified against a running server.
+
+| File | What changed and why |
+|---|---|
+| `src/auth.ts` | `checkPasswordHash` now wraps `argon2.verify` in try/catch and returns `false` on error. The assignment says a comparison that *errors* must answer 401, and an unparseable stored hash was throwing instead |
+| `src/api/auth.ts` | Added a presence guard for `email`/`password` before the lookup, so an empty body is a 401 rather than a crash inside the SQL query. Also fixed `updatedAt` and lowercased the message to match the assignment's wording exactly |
+| `src/api/users.ts` | Fixed `updatedAt: user.createdAt` -> `user.updatedAt` |
+| `src/db/schema.ts` | `hashed_password` gained `.default("unset")`, which the assignment explicitly requires |
+| `src/db/migrations/0003_tan_frank_castle.sql` | Generated: `ALTER TABLE "users" ALTER COLUMN "hashed_password" SET DEFAULT 'unset';` |
+| `src/index.ts` | `handlerLoginUsers` is imported from `./api/auth.js` now that it lives there, not from `./api/users.js` |
+
+The two `updatedAt` lines were real bugs, not style. Both response objects were filling
+`updatedAt` from `user.createdAt`. TypeScript cannot catch it: both fields are `Date`, so
+the wrong one type-checks perfectly. It would have stayed invisible forever on freshly
+created rows, where the two timestamps are equal anyway.
+
+### Key lines worth reading
+
+- `src/auth.ts:9-19` — the try/catch. The reasoning matters more than the code: a stored
+  hash that cannot be parsed must not authenticate anyone, so "cannot compare" and "does
+  not match" have to produce the same answer. Returning `false` rather than rethrowing is
+  what makes that true for every caller, including ones not written yet.
+- `src/api/auth.ts:18-20` — the guard. It throws `UserUnAuthorizedError`, not
+  `UserBadRequestError`, even though a missing field is arguably a bad request. On a login
+  endpoint every failure answers the same 401 on purpose.
+- `src/db/schema.ts:12` — `.notNull().default("unset")`. The default exists for rows that
+  predate the column, which is the only case it can ever apply to.
+- `src/api/users.ts:8` — `export type UserResponse = Omit<NewUser, "hashedPassword">`, the
+  assignment's suggested approach to never leaking the hash.
+
+### How I can check it myself
+
+```
+# the default actually takes effect for a row with no password
+psql "$DB_URL" -c "insert into users (email) values ('x@example.co')"
+psql "$DB_URL" -c "select email, hashed_password from users where email='x@example.co'"
+#  x@example.co | unset
+
+# every login failure is 401, never 500
+curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8080/api/login \
+  -H 'Content-Type: application/json' -d '{}'
+#  401
+
+# nothing resembling the plaintext is stored
+psql "$DB_URL" -c "select hashed_password from users limit 1"
+#  $argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>
+```
+
+To prove `updatedAt` reads the right column, force the two timestamps apart before
+logging in: `update users set updated_at = '2020-01-01' where email = '...'`. The login
+response should show `createdAt` today and `updatedAt` in 2020. If both come back the
+same, the bug is back.
+
+### One thing to remember
+
+An argon2 hash is self-describing. `$argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>` carries
+the variant, the version, the cost parameters (64 MiB of memory, 3 passes, 4 threads), the
+random salt, and only then the hash. That is why verification needs no stored settings:
+everything required to recompute the hash travels with it. It is also why the salt is not
+a secret — its job is to make two identical passwords hash differently, defeating
+precomputed tables, not to be hidden.
+
+### Mistake to avoid
+
+Returning a different status for "unknown email" than for "wrong password". It feels more
+helpful and it hands an attacker a way to enumerate which email addresses have accounts,
+one request at a time. The assignment's insistence on one uniform 401 is a security
+requirement, not tidiness.
+
+### Other ways this could be done (not applied, on purpose)
+
+The assignment is the spec, so none of these were implemented. Recording them here
+because each is a real improvement that a production codebase would probably want.
+
+1. **`UserResponse` is built from the wrong base type.** `NewUser` is
+   `typeof users.$inferInsert`, the *insert* type, where `id`, `createdAt` and `updatedAt`
+   are all optional because the database fills them in. So
+   `Omit<NewUser, "hashedPassword">` makes those three optional too, and
+   `satisfies UserResponse` will happily accept a response object that forgot `id`.
+   `Omit<typeof users.$inferSelect, "hashedPassword">` would require all four fields and
+   catch the omission at compile time. The assignment only says "use the Omit utility
+   type", which this does.
+
+2. **The response object is hand-built in two places.** `src/api/users.ts` and
+   `src/api/auth.ts` each spell out the same four fields. A single
+   `toUserResponse(user)` helper would mean the shape is defined once, and no future
+   handler could leak the hash by copying the wrong object. Two copies is where the
+   `updatedAt` bug came from in the first place — it was wrong in both.
+
+3. **Where the try/catch belongs is a genuine trade-off.** Putting it inside
+   `checkPasswordHash` means no caller can forget it, at the cost of a crypto function
+   that silently swallows real failures (a corrupted hash and a wrong password become
+   indistinguishable in the logs). Putting it in the handler keeps the function honest and
+   makes each caller responsible. For an assignment that wants errors to become 401,
+   inside is the smaller and safer change.
+
+4. **Login leaks timing.** An unknown email returns before any hashing happens; a known
+   email pays for a full argon2 verification first. That difference is measurable, so an
+   attacker can still distinguish registered emails by response time even though both
+   answer 401. Real systems verify against a dummy hash for unknown users so both paths
+   cost the same. Out of scope here, and worth knowing the uniform 401 alone is not the
+   whole defence.
+
+5. **Why 0003 and not an edit to 0002.** `0002` had already run against the database.
+   Drizzle records every applied migration in `drizzle.__drizzle_migrations`, so editing a
+   file that has already run leaves the file and the database disagreeing about history.
+   Adding a new migration is the only honest way to change an applied schema. The reason
+   the original `0002` succeeded at all, despite `NOT NULL` with no default, is that the
+   `users` table happened to be empty at that moment — the same migration would fail
+   outright on a database with rows in it, which is exactly what the default prevents.
+
+6. **A duplicate email still produces a 500.** `createUser` uses `.onConflictDoNothing()`,
+   so inserting an existing email returns `undefined`, and the handler turns that into a
+   generic `Error` -> 500. A 409 Conflict would describe what actually happened. The
+   assignment says nothing about duplicates.
+
+7. **argon2's cost parameters are deployment settings, not code.** The defaults
+   (64 MiB, 3 passes, 4 threads) are deliberately expensive and fine here. Tuning them is
+   a decision about the server's hardware and acceptable login latency, which is why they
+   belong in configuration rather than hardcoded in `hashPassword`.
+
+### Still open (not fixed in this round)
+
+- `GET /api/chirps/:chirpId` with an id that is not a valid UUID returns 500, because the
+  string reaches Postgres and fails `uuid` parsing (`SQLSTATE 22P02`). The guard above it,
+  `typeof chirpId !== "string"`, can never fire — a path parameter is always a string.
+- `src/api/validate-chirp.ts` is dead code. Nothing imports it; the route is long gone.
+- This log has no entries for the database lessons between 2026-10-20 and today
+  (drizzle setup, users, chirps, read endpoints). The commits cover them; the log does not.
