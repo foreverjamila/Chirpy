@@ -617,3 +617,131 @@ because each is a real improvement that a production codebase would probably wan
 - `src/api/validate-chirp.ts` is dead code. Nothing imports it; the route is long gone.
 - This log has no entries for the database lessons between 2026-10-20 and today
   (drizzle setup, users, chirps, read endpoints). The commits cover them; the log does not.
+
+## JWTs: making and validating tokens, and the first unit tests (2026-11-07)
+
+### What I just did
+
+`makeJWT`, `validateJWT`, the `payload` type and the test file were already written and
+passing. One assignment requirement was missing, so that is all I added.
+
+| File | What changed and why |
+|---|---|
+| `src/auth.test.ts` | Added `should throw an error for an expired token`. The assignment names three things to verify — create-and-validate, expired rejected, wrong secret rejected — and only two were covered |
+
+The test signs a token with a **negative** `expiresIn`, which puts `exp` in the past, so
+the token is already expired the instant it exists. No waiting, no fake timers.
+
+```ts
+const expiredToken = makeJWT(userID, -3600, secret);
+expect(() => validateJWT(expiredToken, secret)).toThrow(UserUnAuthorizedError);
+```
+
+That works because `exp` is just a number in the payload — `jwt.sign` signs whatever it is
+given, and `jwt.verify` is the side that compares it against the clock and throws.
+
+### Key lines worth reading
+
+- `src/auth.ts:31-32` — `Math.floor(Date.now() / 1000)`, then `issuedAt + expiresIn`. JWT
+  timestamps are in **seconds**; `Date.now()` returns **milliseconds**. The `/ 1000` is the
+  whole difference between a token that expires in an hour and one that expires in the year
+  51,000.
+- `src/auth.ts:27` — `Pick<JwtPayload, "iss" | "sub" | "iat" | "exp">`. `JwtPayload` allows
+  any key at all, so without the `Pick` a typo like `isr:` would compile fine and produce a
+  token with a claim nobody reads.
+- `src/auth.ts:49` — `jwt.verify(...) as JwtPayload`. Verification is the step that checks
+  the signature *and* the expiry, which is why both a tampered token and an expired one come
+  out of the same `catch`.
+
+### How I can check it myself
+
+```
+npm test
+#  Tests  18 passed (18)      <- see the note below about why it is 18 and not 9
+
+# what is actually inside a token (it is readable by anyone):
+node -e '
+const jwt = require("jsonwebtoken");
+const t = jwt.sign({iss:"chirpy",sub:"abc",iat:1,exp:2}, "secret");
+console.log(t.split(".").length, "parts");
+console.log(JSON.parse(Buffer.from(t.split(".")[1], "base64url")));
+'
+```
+
+That second command is the one worth running once. It decodes the payload **without the
+secret**, which is the point: the secret protects against modification, not reading.
+
+### One thing to remember
+
+A JWT is **signed, not encrypted**. Anyone holding the token can read every claim in it —
+the user id, the issuer, the timestamps. The signature only proves nobody changed them. The
+lesson's own wording is precise about this: *"the data in the token can't be changed without
+the server knowing."* Changed, not read. So never put anything secret in a JWT payload.
+
+The second half of the same idea: a JWT is **stateless**. The server stores nothing and just
+checks the signature, which is why it scales well — and why a token cannot be revoked before
+it expires, because there is nothing to delete. Short expiry times are the only mitigation.
+
+### Mistake to avoid
+
+Writing a test for expiry that actually waits. `setTimeout` for an hour is not a test, and
+mocking the clock is a lot of machinery for this. Signing with a negative `expiresIn` gets a
+genuinely expired token in one line, and exercises the same code path `jwt.verify` would take
+an hour later.
+
+### Other ways this could be done (not applied, on purpose)
+
+1. **Nine of the eighteen tests do not test the source code.** This one is a real defect,
+   not a style point, and it is being left deliberately. `tsconfig.json` includes
+   `./src/**/*.ts`, so `npm run build` compiles `src/auth.test.ts` into `dist/auth.test.js`.
+   Vitest's default file matching then finds that copy too and runs it — and the compiled
+   copy imports `./auth.js`, which resolves to `dist/auth.js`, the **previous build output**.
+
+   It passes today only because the build ran immediately before the tests. The failure mode:
+
+   - Edit a test and run `npm test` without rebuilding — the stale copy runs alongside.
+   - Fix a failing test — it still fails, from `dist`, as if the fix did nothing.
+   - Delete a test — it keeps running.
+   - Break `src/auth.ts` — half the suite still passes, testing the old build.
+
+   It also makes argon2's deliberately slow hashing run twice per suite. `dist/` is
+   gitignored so none of it is committed; it only misleads locally.
+
+   Two ways to fix it when it becomes annoying. A `vitest.config.ts` with
+   `exclude: [...configDefaults.exclude, "dist/**"]` keeps `"test": "vitest --run"` exactly
+   as the assignment specifies and keeps the tests type-checked by `npm run build`. Or
+   `"exclude": ["node_modules", "**/*.test.ts"]` in `tsconfig.json`, which keeps test code
+   out of the build entirely but stops `tsc` type-checking the tests — and vitest does not
+   type-check by default, so type errors in tests would then go unnoticed. The first is the
+   better trade.
+
+   Changing `"test"` to `vitest --run --exclude 'dist/**'` would also work, but the
+   assignment specifies that script's text exactly, so it is the wrong lever here.
+
+2. **The installed vitest is `^5.1.0`; the assignment says `vitest@3`.** Everything used —
+   `describe`, `it`, `expect`, `beforeAll`, `vitest --run` — is unchanged across those major
+   versions, so the tests behave identically. Downgrading means another install and buys
+   nothing; worth knowing only so the version difference is not a surprise later.
+
+3. **`validateJWT` checks that `iss` exists but not that it equals `chirpy`.** A token
+   signed with the same secret by a different issuer would pass. In practice the secret is
+   the real gate, so this is close to moot — but if the issuer is worth checking at all, the
+   check worth making is `decoded.iss !== TOKEN_ISSUER`, not merely that the field is
+   present. The assignment does not ask for an issuer check in either form.
+
+4. **The secret is a parameter, which is right for now.** The next lesson needs a real one,
+   and it belongs in `.env` and `config.ts` alongside `DB_URL` and `PLATFORM` — never a
+   literal in the source, because committing a signing secret means every token ever issued
+   can be forged by anyone who reads the repo.
+
+5. **`catch(e)` never uses `e`.** Discarding the original error means the log loses *why* a
+   token failed — expired, malformed, or wrong signature are very different operational
+   problems. `catch { ... }` says "I am ignoring it" more honestly, and attaching the cause
+   would say more. The uniform 401 to the client should stay uniform either way; this is
+   about what the server's own logs can tell you.
+
+### Still open (unchanged from the previous entry)
+
+- The malformed-UUID 500 on `GET /api/chirps/:chirpId`.
+- `src/api/validate-chirp.ts` is still dead code.
+- A duplicate email still answers 500 rather than 409.
