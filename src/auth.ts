@@ -4,6 +4,8 @@ import type { JwtPayload } from "jsonwebtoken";
 import { UserBadRequestError, UserUnAuthorizedError } from "./api/errors.js";
 import { Request } from "express";
 import { config } from "./config.js";
+import crypto from "crypto";
+import { randomBytes } from "crypto";
 
 // The issuer now lives in config.jwt.issuer, so makeJWT and validateJWT read
 // the same value and cannot drift apart by one typo.
@@ -137,4 +139,8 @@ export function getBearerToken(req: Request): string {
     const bearerToken = extractBearerToken(authHeader);
 
     return bearerToken;
+}
+
+export function makeRefreshToken() {
+    return crypto.randomBytes(32).toString("hex");
 }

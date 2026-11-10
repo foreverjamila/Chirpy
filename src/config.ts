@@ -20,6 +20,7 @@ type DBConfig = {
 
 type JWTSecret = {
   defaultDuration: number;
+  refreshDuration: number;
   issuer: string;
   secret: string;
 };
@@ -51,7 +52,12 @@ export const config: Config = {
     migrationConfig: migrationConfig,
   },
   jwt: {
-    defaultDuration: 60 * 60,
+    // Mind the units, they are deliberately different because their consumers
+    // are: a JWT's exp claim is counted in SECONDS, while refreshDuration is
+    // added to Date.now(), which is in MILLISECONDS. Confusing the two is a
+    // 1000x error in whichever direction you get it wrong.
+    defaultDuration: 60 * 60,                   // 1 hour,  in seconds
+    refreshDuration: 60 * 60 * 24 * 60 * 1000,  // 60 days, in milliseconds
     issuer: "chirpy",
     secret: envOrThrow("JWT_SECRET"),
   }

@@ -49,9 +49,28 @@ export const chirps = pgTable("chirps", {
   .notNull(),
 })
 
+export const refreshTokens = pgTable("refresh_tokens", {
+  // The token IS the key here — there is no separate id, because every lookup
+  // arrives as "here is my refresh token, whose is it?". primaryKey() also
+  // makes the column NOT NULL and unique, which is what stops two users from
+  // ever being handed the same token.
+  token: varchar("token", {length: 256}).primaryKey(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at")
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+  userId: uuid("user_id")
+  .references(() => users.id, { onDelete: "cascade"})
+  .notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  revokedAt: timestamp("revoked_at"),
+})
+
 // $inferInsert derives the type for INSERTING a row, so columns with defaults
 // (id, createdAt, updatedAt) come out optional — the database fills those in.
 // Note that makes these types a loose fit for describing a RESPONSE; the select
 // side is `typeof users.$inferSelect`, where all columns are required.
 export type NewUser = typeof users.$inferInsert;
 export type NewChirp = typeof chirps.$inferInsert;
+export type NewToken = typeof refreshTokens.$inferInsert;
