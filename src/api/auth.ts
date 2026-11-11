@@ -1,12 +1,12 @@
 import { UserUnAuthorizedError } from "./errors.js";
-import { checkPasswordHash, makeJWT, makeRefreshToken } from "../auth.js";
+import { checkPasswordHash, getBearerToken, makeJWT, makeRefreshToken } from "../auth.js";
 import { checkUserByEmail } from "../db/queries/users.js";
 import { respondWithJSON } from "./json.js";
 
 import type { UserResponse } from "./users.js";
 import type { Request, Response } from "express";
 import { config } from "../config.js";
-import { saveRefreshToken } from "../db/queries/refresh.js";
+import { revokeRefreshToken, saveRefreshToken, userForRefreshToken } from "../db/queries/refresh.js";
 
 export type LoginResponse = UserResponse & {
     token: string;
@@ -46,13 +46,11 @@ export async function handlerLoginUsers(req: Request, res: Response) {
     }
 
 
-    // The client may ask for a shorter lifetime but never a longer one: the
-    // server decides the ceiling, because a token cannot be revoked once issued
-    // and a long-lived one stays valid even after the password changes.
-    // The falsy check also covers 0, null and a missing field, all of which mean
-    // "no preference" and get the one-hour default.
-
-
+    // One hour, fixed: the client no longer gets to ask for a lifetime. A JWT
+    // cannot be revoked once signed, so the only protection against a leaked one
+    // is that it stops working soon. The refresh token below is what keeps the
+    // user logged in past that hour, and unlike the JWT it CAN be revoked,
+    // because it has a row in the database.
     // Signed with config.jwt.secret, which lives in .env and is never committed.
     // Anyone holding that secret can mint tokens this server will trust, which
     // is why it is the one value in the project that must not reach git.
@@ -77,4 +75,34 @@ export async function handlerLoginUsers(req: Request, res: Response) {
         token: accessToken,
         refreshToken: refreshToken,
     } satisfies LoginResponse);
+}
+
+export async function handlerRefresh(req: Request, res: Response) {
+    let refreshtoken = getBearerToken(req);
+    const result = await userForRefreshToken(refreshtoken);
+
+    if (!result) {
+        throw new UserUnAuthorizedError("Invalid refresh Token");
+    }
+    
+    const user = result.user;
+    const newAccessToken = makeJWT(
+        user.id,
+        config.jwt.defaultDuration,
+        config.jwt.secret
+    );
+
+    type response = {
+        token: string;
+    };
+
+    respondWithJSON(res, 200, {
+        token: newAccessToken
+    });
+}
+
+export async function handlerRevoke(req: Request, res: Response) {
+    let refreshToken = getBearerToken(req);
+    await revokeRefreshToken(refreshToken);
+    res.status(204).send();
 }
