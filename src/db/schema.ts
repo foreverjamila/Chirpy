@@ -1,4 +1,4 @@
-import { pgTable, timestamp, varchar, uuid, text } from "drizzle-orm/pg-core";
+import { pgTable, timestamp, varchar, uuid, text, boolean } from "drizzle-orm/pg-core";
 
 
 // This file is the single source of truth for the database shape. `npm run
@@ -28,6 +28,11 @@ export const users = pgTable("users", {
   // adding a NOT NULL column to a table that already has rows fails outright —
   // Postgres would have no value to put in them.
   hashedPassword: varchar("hashed_password").notNull().default("unset"),
+  // NOT NULL plus a DEFAULT, for the same reason hashedPassword above needed
+  // one: the table already had rows when this column was added, and Postgres
+  // must have something to put in them. false is the honest default — nobody is
+  // a paying member until Polka says so.
+  isChirpyRed: boolean("is_chirpy_red").notNull().default(false),
 });
 
 export const chirps = pgTable("chirps", {

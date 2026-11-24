@@ -60,3 +60,20 @@ export async function updateUser(id: string, email: string, hashedPassword: stri
   // 500; the assignment does not cover that case, so it is left as is.
   return result;
 }
+
+// Marks one user as a paying Chirpy Red member. Called only from the Polka
+// webhook — there is deliberately no endpoint a user can hit to upgrade
+// themselves, because the payment provider is the only thing that knows money
+// changed hands.
+//
+// Returns undefined when no row had that id, which is how the handler knows to
+// answer 404 rather than 204.
+export async function upgradeChirpyRed(userId: string) {
+  const [result] = await db
+  .update(users)
+  .set({isChirpyRed: true})
+  .where(eq(users.id, userId))
+  .returning();
+
+  return result;
+}

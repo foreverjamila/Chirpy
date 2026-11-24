@@ -1,7 +1,7 @@
 import * as argon2 from "argon2";
 import jwt from "jsonwebtoken";
 import type { JwtPayload } from "jsonwebtoken";
-import { UserUnAuthorizedError } from "./api/errors.js";
+import { UserBadRequestError, UserUnAuthorizedError } from "./api/errors.js";
 import { Request } from "express";
 import { config } from "./config.js";
 import crypto from "crypto";
@@ -117,7 +117,7 @@ export function extractBearerToken(authorization: string | undefined): string {
     const splitAuth = authorization.trim().split(" ");
 
     if (splitAuth.length < 2 || splitAuth[0] !== "Bearer") {
-        throw new UserUnAuthorizedError("Malformed authorization header");
+        throw new UserBadRequestError("Malformed authorization header");
     }
 
     // "Bearer " passes the length and scheme checks above but carries no
@@ -149,4 +149,58 @@ export function getBearerToken(req: Request): string {
 
 export function makeRefreshToken() {
     return crypto.randomBytes(32).toString("hex");
+}
+
+
+// The same job as extractBearerToken, for a different scheme. Polka sends
+//
+//     Authorization: ApiKey THE_KEY_HERE
+//
+// The real key lives in .env as POLKA_KEY and is never written down in source,
+// not even partially.
+//
+// so the word "ApiKey" has to be stripped off and only the key returned.
+//
+// Why a separate function rather than one parameterised by scheme: the two
+// credentials are not interchangeable. A bearer token identifies a PERSON and
+// is short-lived; this key identifies a SERVICE and never changes. Keeping them
+// apart means a caller cannot pass one where the other is expected, and the
+// compiler cannot be talked into it either.
+export function extractApiKey(authorization: string | undefined): string {
+    if (!authorization) {
+        throw new UserUnAuthorizedError("Malformed authorization header");
+    }
+
+    const splitAuth = authorization.trim().split(" ");
+
+    if (splitAuth.length < 2 || splitAuth[0] !== "ApiKey") {
+        throw new UserBadRequestError("Malformed authorization header");
+    }
+
+    const apiKey = splitAuth[1].trim();
+
+    if (!apiKey) {
+        throw new UserUnAuthorizedError("Malformed authorization header");
+    }
+
+    return apiKey;
+}
+
+
+// Pulls the header off the request so handlers never touch req.get themselves,
+// exactly as getBearerToken does. The pair is: getAPIKey knows about Express,
+// extractApiKey knows about the string — which is why extractApiKey is the one
+// with unit tests, since it needs no request object to call.
+export function getAPIKey(req: Request) {
+    const authHeader = req.get("Authorization");
+
+    if (!authHeader) {
+        throw new UserUnAuthorizedError("Malformed authorization header");
+    }
+
+    const apiKey = extractApiKey(authHeader);
+
+    return apiKey;
+
+
 }

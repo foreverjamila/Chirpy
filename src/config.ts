@@ -11,6 +11,7 @@ type APIConfig = {
   fileserverHits: number;
   port: number;
   platform: string;
+  polkaApiKey: string;
 };
 
 type DBConfig = {
@@ -46,6 +47,11 @@ export const config: Config = {
     fileserverHits: 0,
     port: Number(envOrThrow("PORT")),
     platform: envOrThrow("PLATFORM"),
+    // The shared secret Polka sends back to prove a webhook is really from
+    // them. envOrThrow means the server refuses to start without it rather than
+    // booting with an undefined key that nothing could ever match — a webhook
+    // endpoint silently accepting everything would be worse than a crash.
+    polkaApiKey: envOrThrow("POLKA_KEY"),
   },
   db: {
     url: envOrThrow("DB_URL"),

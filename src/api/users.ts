@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { checkUserByEmail, createUser, updateUser } from "../db/queries/users.js";
+import { checkUserByEmail, createUser, updateUser, upgradeChirpyRed } from "../db/queries/users.js";
 import { UserBadRequestError, UserNotFoundError, UserUnAuthorizedError } from "./errors.js";
 import { checkPasswordHash, getBearerToken, hashPassword, validateJWT } from "../auth.js";
 import { respondWithJSON } from "./json.js";
@@ -48,6 +48,7 @@ export async function handlerUsersCreate(req: Request, res: Response) {
         email: user.email,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
+        isChirpyRed: user.isChirpyRed,
     } satisfies UserResponse);
 
 }
@@ -94,5 +95,7 @@ export async function handlerUsersUpdate(req: Request, res: Response) {
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
         email: user.email,
+        isChirpyRed: user.isChirpyRed,
     } satisfies UserResponse);
 }
+
