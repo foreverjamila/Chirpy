@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import { UserBadRequestError, UserNotFoundError } from "./errors.js";
-import { createChirp, getChirps, getChirpsById } from "../db/queries/chirps.js";
+import { UserBadRequestError, UserForbiddenError, UserNotFoundError } from "./errors.js";
+import { createChirp, deleteChirpsById, getChirps, getChirpsById } from "../db/queries/chirps.js";
 import { respondWithJSON } from "./json.js";
 import { getBearerToken, validateJWT } from "../auth.js";
 import { config } from "../config.js";
@@ -94,4 +94,51 @@ export async function handlerRetrieveChirpsById(req: Request, res: Response) {
   }
 
   respondWithJSON(res, 200, chirp);
+}
+
+
+// DELETE /api/chirps/:chirpId — the author, and only the author, removes a chirp.
+//
+// The order of the four checks below is the whole design, and it is deliberate:
+//
+//   1. token            -> 401, before the database is touched at all
+//   2. does it exist?   -> 404
+//   3. is it yours?     -> 403
+//   4. delete           -> 204
+//
+// Checking the token FIRST is what stops a stranger with no credentials from
+// probing ids and learning which chirps exist from the difference between a 404
+// and a 403. Steps 2 and 3 are in that order because you cannot ask "is this
+// yours?" about a row that was never there.
+export async function handlerChirpsDeleteById(req: Request, res: Response) {
+  const {chirpId} = req.params;
+
+  if (typeof chirpId !== "string") {
+    throw new UserBadRequestError("Invalid chirp ID");
+  }
+
+  const token = getBearerToken(req);
+  const userId = validateJWT(token, config.jwt.secret);
+
+  const chirp = await getChirpsById(chirpId);
+
+  if (!chirp) {
+    throw new UserNotFoundError(`Chirp with chirpId: ${chirpId} not found`);
+  }
+
+  // 403, NOT 401. The two are easy to confuse and mean opposite things: 401
+  // says "I do not know who you are, log in again", while 403 says "I know
+  // exactly who you are and the answer is still no". Logging in again cannot
+  // help here, because the token is already valid — the chirp simply belongs
+  // to someone else. This comparison is the authorization rule in one line.
+  if (chirp.userId !== userId) {
+    throw new UserForbiddenError("Access denied");
+  }
+
+  await deleteChirpsById(chirpId);
+
+  // 204 No Content, so .send() is called with nothing: there is no resource
+  // left to describe, and a body on a 204 would be ignored anyway. Same shape
+  // as handlerRevoke.
+  res.status(204).send();
 }
