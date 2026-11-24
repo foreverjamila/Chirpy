@@ -42,3 +42,21 @@ export async function checkUserByEmail(email: string) {
 
   return rows[0];
 }
+
+export async function updateUser(id: string, email: string, hashedPassword: string) {
+  const [result] = await db
+  .update(users)
+  // .set() names the only two columns that may change. updatedAt is not listed
+  // because the schema's $onUpdate fills it in on every db.update() call.
+  .set({email: email, hashedPassword: hashedPassword})
+  // The where() is the authorization: exactly one row, the one whose id came
+  // out of the caller's token. Forget this line and an UPDATE rewrites EVERY
+  // user in the table — which is why it is worth reading twice.
+  .where(eq(users.id, id ))
+  .returning();
+
+  // undefined if no row matched, e.g. a still-valid token for a user who has
+  // since been deleted. The caller then reads .id off undefined and answers
+  // 500; the assignment does not cover that case, so it is left as is.
+  return result;
+}

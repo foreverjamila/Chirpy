@@ -6,7 +6,7 @@ import {
   validateJWT,
   extractBearerToken,
 } from "./auth.js";
-import { UserUnAuthorizedError, UserBadRequestError } from "./api/errors.js";
+import { UserUnAuthorizedError } from "./api/errors.js";
 
 describe("Password Hashing", () => {
   const password1 = "correctPassword123!";
@@ -96,18 +96,21 @@ describe("extractBearerToken", () => {
     expect(extractBearerToken(header)).toBe(token);
   });
 
-  it("should throw a BadRequestError if the header does not contain at least two parts", () => {
+  // All three expect UserUnAuthorizedError (401), not UserBadRequestError
+  // (400): the PUT /api/users assignment requires a malformed or missing
+  // access token to answer 401.
+  it("should throw an UnAuthorizedError if the header does not contain at least two parts", () => {
     const header = "Bearer";
-    expect(() => extractBearerToken(header)).toThrow(UserBadRequestError);
+    expect(() => extractBearerToken(header)).toThrow(UserUnAuthorizedError);
   });
 
-  it('should throw a BadRequestError if the header does not start with "Bearer"', () => {
+  it('should throw an UnAuthorizedError if the header does not start with "Bearer"', () => {
     const header = "Basic mySecretToken";
-    expect(() => extractBearerToken(header)).toThrow(UserBadRequestError);
+    expect(() => extractBearerToken(header)).toThrow(UserUnAuthorizedError);
   });
 
-  it("should throw a BadRequestError if the header is an empty string", () => {
+  it("should throw an UnAuthorizedError if the header is an empty string", () => {
     const header = "";
-    expect(() => extractBearerToken(header)).toThrow(UserBadRequestError);
+    expect(() => extractBearerToken(header)).toThrow(UserUnAuthorizedError);
   });
 });

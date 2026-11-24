@@ -1,9 +1,11 @@
 import { Request, Response } from "express";
-import { checkUserByEmail, createUser } from "../db/queries/users.js";
+import { checkUserByEmail, createUser, updateUser } from "../db/queries/users.js";
 import { UserBadRequestError, UserNotFoundError, UserUnAuthorizedError } from "./errors.js";
-import { checkPasswordHash, hashPassword } from "../auth.js";
+import { checkPasswordHash, getBearerToken, hashPassword, validateJWT } from "../auth.js";
 import { respondWithJSON } from "./json.js";
 import { NewUser } from "../db/schema.js";
+import { config } from "../config.js";
+
 
 // The safe shape of a user to send over the wire: every column except the
 // password hash. Deriving it with Omit rather than writing the fields out means
@@ -48,4 +50,49 @@ export async function handlerUsersCreate(req: Request, res: Response) {
         updatedAt: user.updatedAt,
     } satisfies UserResponse);
 
+}
+
+// PUT /api/users — a user changes their OWN email and password.
+//
+// This is the authorization lesson in one function: the id of the row to update
+// comes out of the TOKEN, never out of the request body. If the handler read an
+// id from the body instead, anyone could paste a stranger's id and take over
+// that account, because the body is written by the client and the token is not.
+// There is deliberately no "which user?" parameter for a caller to tamper with.
+export async function handlerUsersUpdate(req: Request, res: Response) {
+    type Parameter = {
+        email: string;
+        password: string;
+    };
+
+    // Token first, before the body is even looked at: an unauthenticated caller
+    // gets 401 without the server spending time hashing their password. Both
+    // calls throw UserUnAuthorizedError, so a missing, malformed, expired or
+    // forged token all answer 401 as the assignment requires.
+    const token = getBearerToken(req);
+    const userId = validateJWT(token, config.jwt.secret);
+
+    const params: Parameter = req.body;
+
+    // Both fields are required — this is a full replacement, not a patch. A
+    // request with only an email would otherwise reach hashPassword(undefined)
+    // and crash into a 500.
+    if (!params.email || !params.password) {
+        throw new UserBadRequestError("Missing required fields");
+    }
+
+    // Hashed here, so the new plaintext never reaches the database or a query log.
+    const hashedPassword = await hashPassword(params.password);
+
+    const user = await updateUser(userId, params.email, hashedPassword);
+
+    // Same four fields as the create handler, for the same reason: listing them
+    // out rather than spreading `user` is what keeps hashedPassword off the
+    // wire, and `satisfies UserResponse` makes the compiler check the shape.
+    respondWithJSON(res, 200, {
+        id: user.id,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+        email: user.email,
+    } satisfies UserResponse);
 }

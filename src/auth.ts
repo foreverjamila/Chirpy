@@ -1,7 +1,7 @@
 import * as argon2 from "argon2";
 import jwt from "jsonwebtoken";
 import type { JwtPayload } from "jsonwebtoken";
-import { UserBadRequestError, UserUnAuthorizedError } from "./api/errors.js";
+import { UserUnAuthorizedError } from "./api/errors.js";
 import { Request } from "express";
 import { config } from "./config.js";
 import crypto from "crypto";
@@ -98,11 +98,17 @@ export function validateJWT(tokenString: string, secret: string): string {
 // says HOW to read the credential — and it is not part of the token itself.
 //
 // The parameter accepts undefined because that is what Express gives us when
-// the header is absent (req.get("Authorization")), and a missing header is a
-// bad request, not a crash.
+// the header is absent (req.get("Authorization")), so a missing header is an
+// ordinary answer here rather than a crash.
+//
+// EVERY failure below is 401, not 400. The PUT /api/users assignment requires
+// "malformed or missing" to answer 401, and that is the honest status anyway:
+// the request itself is fine, it is the credential that is unusable. 400 would
+// also tell a caller their header shape was the problem, which is a hint worth
+// withholding.
 export function extractBearerToken(authorization: string | undefined): string {
     if (!authorization) {
-        throw new UserBadRequestError("Malformed authorization header");
+        throw new UserUnAuthorizedError("Malformed authorization header");
     }
 
     // trim() first, so a header padded with spaces still parses: without it
@@ -111,7 +117,7 @@ export function extractBearerToken(authorization: string | undefined): string {
     const splitAuth = authorization.trim().split(" ");
 
     if (splitAuth.length < 2 || splitAuth[0] !== "Bearer") {
-        throw new UserBadRequestError("Malformed authorization header");
+        throw new UserUnAuthorizedError("Malformed authorization header");
     }
 
     // "Bearer " passes the length and scheme checks above but carries no
@@ -119,7 +125,7 @@ export function extractBearerToken(authorization: string | undefined): string {
     const token = splitAuth[1].trim();
 
     if (!token) {
-        throw new UserBadRequestError("Malformed authorization header");
+        throw new UserUnAuthorizedError("Malformed authorization header");
     }
 
     // One message for every failure, as elsewhere in this file: a caller
