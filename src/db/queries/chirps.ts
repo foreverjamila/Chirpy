@@ -14,13 +14,15 @@ export async function createChirp(chirp: NewChirp) {
   return result;
 }
 
-export async function getChirps() {
+export async function getChirps(authorId?: string) {
+  const condition = authorId ? eq(chirps.userId, authorId) : undefined;
   const result = await db
     .select()
     .from(chirps)
     // Explicit ordering matters: without ORDER BY, Postgres makes no promise
     // about row order, and "it came back sorted" during testing is luck, not
     // a guarantee.
+    .where(condition)
     .orderBy(asc(chirps.createdAt));
 
     return result;
